@@ -19,24 +19,24 @@ import (
 )
 
 var (
-	// Versiyon bilgisi
+	// Version information
 	version = "1.0.0"
 
-	// Prometheus metrikleri
+	// Prometheus metrics
 	scannedFiles = prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "bashleaks_scanned_files_total",
-		Help: "Taranan toplam dosya sayısı",
+		Help: "Total number of scanned files",
 	})
 
 	findingsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "bashleaks_findings_total",
-			Help: "Risk seviyelerine göre bulunan toplam güvenlik açığı sayısı",
+			Help: "Total number of security vulnerabilities found by risk level",
 		},
 		[]string{"level"},
 	)
 
-	// Komut satırı flag'leri
+	// Command-line flags
 	flagOutputFormat string
 	flagOutputFile   string
 	flagFailOn       string
@@ -45,57 +45,57 @@ var (
 )
 
 func init() {
-	// Prometheus kayıt işlemleri
+	// Prometheus registrations
 	prometheus.MustRegister(scannedFiles)
 	prometheus.MustRegister(findingsTotal)
 
-	// Kök komut flag'leri
-	rootCmd.PersistentFlags().StringVarP(&flagOutputFormat, "format", "f", "text", "Rapor formatı: text, json, yaml, html, markdown")
-	rootCmd.PersistentFlags().StringVarP(&flagOutputFile, "output", "o", "", "Rapor dosyası (belirtilmezse stdout kullanılır)")
-	rootCmd.PersistentFlags().StringVar(&flagFailOn, "fail-on", "", "Belirtilen risk seviyesinde veya üstünde hata var ise başarısız olur: critical, medium, low")
-	rootCmd.PersistentFlags().StringVar(&flagMetricsAddr, "metrics-addr", "", "Prometheus metriklerini dinlemek için adres (örn. :9090)")
-	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "Detaylı log gösterimi")
+	// Root command flags
+	rootCmd.PersistentFlags().StringVarP(&flagOutputFormat, "format", "f", "text", "Report format: text, json, yaml, html, markdown")
+	rootCmd.PersistentFlags().StringVarP(&flagOutputFile, "output", "o", "", "Report file (uses stdout if not specified)")
+	rootCmd.PersistentFlags().StringVar(&flagFailOn, "fail-on", "", "Fails if vulnerabilities are found at specified risk level or above: critical, medium, low")
+	rootCmd.PersistentFlags().StringVar(&flagMetricsAddr, "metrics-addr", "", "Address for listening Prometheus metrics (e.g. :9090)")
+	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "Verbose logging")
 
-	// Alt komutları ekle
+	// Add subcommands
 	rootCmd.AddCommand(versionCmd)
 }
 
-// Ana root komut
+// Main root command
 var rootCmd = &cobra.Command{
-	Use:   "bashleaks [dosya ya da dizin]",
-	Short: "Shell script güvenlik açıklarını tespit etmek için statik analiz aracı",
-	Long: `BashLeaks, shell script dosyalarınızı tarayarak potansiyel olarak tehlikeli
-ve kötüye kullanılabilir komut kalıplarını tespit eden bir statik analiz aracıdır.
-CI/CD süreçlerine entegre edilebilir, script güvenliğini otomatikleştirmek için tasarlanmıştır.`,
+	Use:   "bashleaks [file or directory]",
+	Short: "Static analysis tool to detect security vulnerabilities in shell scripts",
+	Long: `BashLeaks is a static analysis tool that scans shell script files to detect
+potentially dangerous and exploitable command patterns. It can be integrated into
+CI/CD processes and is designed to automate script security.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Log yapılandırması
+		// Configure logging
 		setupLogging()
 
-		// Metrics sunucusunu başlat (eğer belirtilmişse)
+		// Start metrics server (if specified)
 		if flagMetricsAddr != "" {
 			go startMetricsServer(flagMetricsAddr)
 		}
 
-		// Komut argümanlarını kontrol et
-		// Format parametresi geçerli mi?
+		// Check command arguments
+		// Is the format parameter valid?
 		validFormats := []string{"text", "json", "yaml", "html", "markdown"}
 		formatValid := false
 
-		// Formatı küçük harfe çevirelim
+		// Convert format to lowercase
 		flagOutputFormat = strings.ToLower(flagOutputFormat)
 
-		// Eğer -format flag'i eksik/hatalı olarak parse edilmişse (örn. "ormat")
-		// ve args listesinde bunun düzeltilmesi gerekiyorsa, bu kısımda düzeltebiliriz
-		// Ancak bu durumda en güvenli çözüm kullanıcıyı doğru kullanım konusunda bilgilendirmek
+		// If -format flag is parsed incorrectly (e.g., "ormat")
+		// and needs to be corrected in the args list, we could do it here
+		// But the safest solution is to inform the user about proper usage
 
-		// Şu anda flagOutputFormat içinde ne var kontrol edelim
+		// Check what's currently in flagOutputFormat
 		if flagOutputFormat != "text" && flagOutputFormat != "json" &&
 			flagOutputFormat != "yaml" && flagOutputFormat != "html" &&
 			flagOutputFormat != "markdown" {
-			// Kullanıcının -format flag'ini kullanmaya çalıştığını varsayalım
-			log.Warn().Str("invalid-format", flagOutputFormat).Msg("Geçersiz format, doğru kullanım: -f html veya --format html")
-			// Varsayılan format olarak text kullanalım
+			// Assume user was trying to use -format flag
+			log.Warn().Str("invalid-format", flagOutputFormat).Msg("Invalid format, correct usage: -f html or --format html")
+			// Use text as default format
 			flagOutputFormat = "text"
 		}
 
@@ -107,17 +107,17 @@ CI/CD süreçlerine entegre edilebilir, script güvenliğini otomatikleştirmek 
 		}
 
 		if !formatValid {
-			return fmt.Errorf("geçersiz format: %s. Desteklenen formatlar: text, json, yaml, html, markdown", flagOutputFormat)
+			return fmt.Errorf("invalid format: %s. Supported formats: text, json, yaml, html, markdown", flagOutputFormat)
 		}
 
-		// Tüm belirtilen dosya/dizinleri tara
+		// Scan all specified files/directories
 		var allFindings []rules.Finding
 		totalFiles := 0
 
 		for _, path := range args {
 			findings, fileCount, err := scanPath(path)
 			if err != nil {
-				log.Error().Err(err).Str("path", path).Msg("Tarama hatası")
+				log.Error().Err(err).Str("path", path).Msg("Scanning error")
 				return err
 			}
 
@@ -125,31 +125,31 @@ CI/CD süreçlerine entegre edilebilir, script güvenliğini otomatikleştirmek 
 			totalFiles += fileCount
 		}
 
-		// Rapor oluştur
+		// Create report
 		r := report.NewReport(allFindings, totalFiles)
 
-		// Raporu yazdır
+		// Print report
 		if err := outputReport(r); err != nil {
-			log.Error().Err(err).Msg("Rapor yazdırma hatası")
+			log.Error().Err(err).Msg("Report output error")
 			return err
 		}
 
-		// CI/CD için çıkış kodu
+		// Exit code for CI/CD
 		handleExitCode(r)
 		return nil
 	},
 }
 
-// Versiyon komutu
+// Version command
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Versiyon bilgisini gösterir",
+	Short: "Shows version information",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("BashLeaks %s\n", version)
 	},
 }
 
-// setupLogging, log yapılandırmasını ayarlar
+// setupLogging sets up logging configuration
 func setupLogging() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 
@@ -163,23 +163,23 @@ func setupLogging() {
 	log.Logger = zerolog.New(consoleWriter).With().Timestamp().Logger()
 }
 
-// startMetricsServer, Prometheus metrikleri için HTTP sunucusunu başlatır
+// startMetricsServer starts HTTP server for Prometheus metrics
 func startMetricsServer(addr string) {
 	http.Handle("/metrics", promhttp.Handler())
 	err := http.ListenAndServe(addr, nil)
 	if err != nil {
-		log.Error().Err(err).Str("addr", addr).Msg("Metrics sunucusu başlatılamadı")
+		log.Error().Err(err).Str("addr", addr).Msg("Failed to start metrics server")
 	}
 }
 
-// scanPath, belirtilen dosya veya dizini tarar
+// scanPath scans the specified file or directory
 func scanPath(path string) ([]rules.Finding, int, error) {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, 0, fmt.Errorf("dosya/dizin bulunamadı: %s", path)
+			return nil, 0, fmt.Errorf("file/directory not found: %s", path)
 		}
-		return nil, 0, fmt.Errorf("dosya/dizin bilgisi alınamadı: %w", err)
+		return nil, 0, fmt.Errorf("could not get file/directory info: %w", err)
 	}
 
 	s := scanner.NewScanner()
@@ -187,14 +187,14 @@ func scanPath(path string) ([]rules.Finding, int, error) {
 	fileCount := 0
 
 	if fileInfo.IsDir() {
-		log.Info().Str("path", path).Msg("Dizin taranıyor")
+		log.Info().Str("path", path).Msg("Scanning directory")
 		results, err := s.ScanDirectory(path)
 		if err != nil {
-			return nil, 0, fmt.Errorf("dizin tarama hatası: %w", err)
+			return nil, 0, fmt.Errorf("directory scanning error: %w", err)
 		}
 		findings = results
 
-		// Taranan dosya sayısını hesapla
+		// Calculate number of scanned files
 		err = filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
@@ -209,16 +209,16 @@ func scanPath(path string) ([]rules.Finding, int, error) {
 			return nil, 0, err
 		}
 	} else {
-		log.Info().Str("path", path).Msg("Dosya taranıyor")
+		log.Info().Str("path", path).Msg("Scanning file")
 		results, err := s.ScanFile(path)
 		if err != nil {
-			return nil, 0, fmt.Errorf("dosya tarama hatası: %w", err)
+			return nil, 0, fmt.Errorf("file scanning error: %w", err)
 		}
 		findings = results
 		fileCount = 1
 	}
 
-	// Metrikleri güncelle
+	// Update metrics
 	scannedFiles.Add(float64(fileCount))
 	for _, finding := range findings {
 		findingsTotal.WithLabelValues(string(finding.Rule.Level())).Inc()
@@ -228,77 +228,89 @@ func scanPath(path string) ([]rules.Finding, int, error) {
 		Int("findings", len(findings)).
 		Int("files", fileCount).
 		Str("path", path).
-		Msg("Tarama tamamlandı")
+		Msg("Scanning completed")
 
 	return findings, fileCount, nil
 }
 
-// outputReport, raporu belirtilen formatta çıktı olarak verir
+// outputReport outputs the report in the specified format
 func outputReport(r *report.Report) error {
 	format := report.Format(flagOutputFormat)
 
 	if flagOutputFile == "" {
-		// stdout'a yazdır
+		// Print to stdout
 		return r.Print(format, os.Stdout)
 	}
 
-	// Dosyaya yazdır
+	// Write to file
 	err := r.SaveToFile(format, flagOutputFile)
 	if err != nil {
-		return fmt.Errorf("rapor dosyası oluşturma hatası: %w", err)
+		return fmt.Errorf("error creating report file: %w", err)
 	}
 
 	log.Info().
 		Str("format", string(format)).
 		Str("output", flagOutputFile).
-		Msg("Rapor başarıyla oluşturuldu")
+		Msg("Report successfully created")
 
 	return nil
 }
 
-// handleExitCode, CI/CD entegrasyonu için uygun çıkış kodunu belirler
+// handleExitCode sets exit code based on findings and --fail-on flag
 func handleExitCode(r *report.Report) {
 	if flagFailOn == "" {
 		return
 	}
 
-	var shouldFail bool
-
+	// Convert fail-on flag to lowercase and find the corresponding risk level
+	var failLevel rules.RiskLevel
 	switch strings.ToLower(flagFailOn) {
 	case "critical":
-		shouldFail = r.SummaryInfo.CriticalCount > 0
+		failLevel = rules.RiskLevelCritical
 	case "medium":
-		shouldFail = r.SummaryInfo.CriticalCount > 0 || r.SummaryInfo.MediumCount > 0
+		failLevel = rules.RiskLevelMedium
 	case "low":
-		shouldFail = r.SummaryInfo.CriticalCount > 0 || r.SummaryInfo.MediumCount > 0 || r.SummaryInfo.LowCount > 0
+		failLevel = rules.RiskLevelLow
 	default:
-		log.Warn().Str("fail-on", flagFailOn).Msg("Geçersiz fail-on değeri, çıkış başarılı olacak")
-		return
+		log.Warn().Str("level", flagFailOn).Msg("Invalid risk level for --fail-on. Using 'critical' as default.")
+		failLevel = rules.RiskLevelCritical
 	}
 
-	if shouldFail {
-		log.Warn().
-			Str("fail-on", flagFailOn).
-			Int("critical", r.SummaryInfo.CriticalCount).
-			Int("medium", r.SummaryInfo.MediumCount).
-			Int("low", r.SummaryInfo.LowCount).
-			Msg("Güvenlik açıkları bulundu, çıkış başarısız olacak")
-		os.Exit(1)
-	}
-}
+	// Set exit code based on findings
+	exitCode := 0
+	for _, finding := range r.Findings {
+		// Skip ignored findings
+		if finding.Ignored {
+			continue
+		}
 
-func main() {
-	// Eğer argümanlar arasında "-format" varsa, bunu düzeltelim
-	// Bu tarz bir kurtarma mekanizması için en uygun yer main fonksiyonu
-	for i, arg := range os.Args {
-		if arg == "-format" && i+1 < len(os.Args) {
-			// -format html -> --format html olarak düzelt
-			os.Args[i] = "--format"
-			// Bir sonraki argüman zaten doğru olduğu için dokunmayız
+		// Check if finding level is at or above the specified failure level
+		switch failLevel {
+		case rules.RiskLevelLow:
+			exitCode = 1 // All levels cause failure
+		case rules.RiskLevelMedium:
+			if finding.Rule.Level() == rules.RiskLevelMedium || finding.Rule.Level() == rules.RiskLevelCritical {
+				exitCode = 1
+			}
+		case rules.RiskLevelCritical:
+			if finding.Rule.Level() == rules.RiskLevelCritical {
+				exitCode = 1
+			}
+		}
+
+		// If we already decided to exit with error, no need to check further
+		if exitCode != 0 {
 			break
 		}
 	}
 
+	if exitCode != 0 {
+		log.Warn().Str("level", string(failLevel)).Msg("Vulnerabilities found at or above specified risk level")
+		os.Exit(exitCode)
+	}
+}
+
+func main() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
