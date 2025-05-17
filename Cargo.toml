@@ -1,0 +1,39 @@
+[package]
+name = "bashleaks"
+version = "0.1.0"
+edition = "2021"
+authors = ["Bashleaks Team"]
+description = "Bash scriptlerinde güvenlik açıklarını ve gizli bilgi sızıntılarını tespit etmek için statik analiz aracı"
+readme = "README.md"
+repository = "https://github.com/username/bashleaks"
+license = "MIT"
+keywords = ["security", "bash", "static-analysis", "leak-detection"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+tree-sitter = "0.19.5"
+tree-sitter-bash = "0.19.0"
+regex = "1.9"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+env_logger = "0.10"
+walkdir = "2.3"
+colored = "2.0"
+rayon = "1.7"
+thiserror = "1.0"
+anyhow = "1.0"
+lazy_static = "1.4"
+tera = "1.19"
+chrono = "0.4"
+rand = "0.8"
+
+[dev-dependencies]
+tempfile = "3.8"
+assert_cmd = "2.0"
+predicates = "3.0"
+
+[features]
+default = ["runtime-monitoring"]
+runtime-monitoring = []
